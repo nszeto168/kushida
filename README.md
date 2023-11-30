@@ -127,5 +127,6 @@ Now you should have a standalone executable. The executable generates a log file
 You will still need to run the HTTPS log collection server, however, you will not need the HTTP file server when using Kushida Solo.
 
 # Results
+![image](https://github.com/nszeto168/kushida/assets/103395342/880607eb-b469-408e-bfaf-10a3e30f9f1e)
 
 Thanks for checking out the Kushida keylogger, I hope you enjoyed it!
