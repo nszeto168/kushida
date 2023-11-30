@@ -36,6 +36,7 @@ openssl req -new -x509 -keyout key.pem -out server.pem -days 365 -nodes
 The services should now be running on all interfaces. The ports that are used are port 80 for the HTTP file server and 8080 for the HTTPS server. These values can be modified if needed, however, you will also need to modify the ports of the malware accordingly.
 
 # Building and running Kushida
+Change the files accordingly.
 
 ## Google-Job-Offer.pdf.lnk
 This is the malicious "PDF" which will present a PDF to the user and install Kushida.
