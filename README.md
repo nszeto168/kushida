@@ -1,5 +1,5 @@
 # Kushida
-This is the Kushida keylogger developed for my Bachelor's capstone project, 2023. It was developed for research and academic purposes.
+This is the Kushida keylogger developed for my Fall 2023 Bachelor's capstone project. It was developed for research and academic purposes.
 
 Kushida is a keylogger written in C. It is a proof of concept for evading modern EDR and AV programs. It successfully evades many EDR solutions by using DLL hijacking.
 
